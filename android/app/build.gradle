@@ -82,8 +82,8 @@ android {
         applicationId "com.bitrise.reactnativecodepush"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode System.getenv("APP_VERSION_CODE") != null ? System.getenv("APP_VERSION_CODE").toInteger() : 1
+        versionName System.getenv("APP_VERSION_NAME") != null ? System.getenv("APP_VERSION_NAME") : "1.0"
     }
     signingConfigs {
         debug {
