@@ -77,9 +77,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.bitrisereactnativecodepushv2"
+    namespace "com.bitrise.reactnativecodepush"
     defaultConfig {
-        applicationId "com.bitrisereactnativecodepushv2"
+        applicationId "com.bitrise.reactnativecodepush"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -117,3 +117,5 @@ dependencies {
         implementation jscFlavor
     }
 }
+
+apply from: "../../node_modules/@code-push-next/react-native-code-push/android/codepush.gradle"

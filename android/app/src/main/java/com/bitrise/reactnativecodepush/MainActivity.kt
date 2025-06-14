@@ -1,4 +1,4 @@
-package com.bitrisereactnativecodepushv2
+package com.bitrise.reactnativecodepush
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
