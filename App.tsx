@@ -9,6 +9,7 @@ import {
   FlatList,
   StatusBar,
   Alert,
+  Image
 } from 'react-native';
 import codePush from '@code-push-next/react-native-code-push';
 
@@ -128,6 +129,10 @@ const App = () => {
       <View style={styles.header}>
         <Text style={styles.title}>Todo List Tests</Text>
         <Text style={styles.subtitle}>With CodePush Integration *</Text>
+        <Image 
+          source={require('./assets/favicon.png')} 
+          style={styles.image}
+        />
       </View>
 
       <View style={styles.inputContainer}>
@@ -260,6 +265,11 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     color: 'gray',
     marginTop: 50,
+  },
+  image: {
+    width: 50,
+    height: 50,
+    marginTop: 20, // Add some space between the text and image
   },
 });
 
