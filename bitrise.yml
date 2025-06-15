@@ -1,0 +1,628 @@
+---
+format_version: '13'
+default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
+project_type: ios
+workflows:
+  ios_release:
+    status_report_name: Executing <target_id> for <project_title>
+    description: |
+      Installs dependencies.
+
+      Next steps:
+      - Add tests to your project and configure the workflow to run them.
+      - Check out [Getting started with Expo apps](https://devcenter.bitrise.io/en/getting-started/getting-started-with-expo-apps.html).
+    steps:
+    - git-clone@8: {}
+    - restore-npm-cache@2: {}
+    - npm@1:
+        title: npm install
+        inputs:
+        - command: install
+    - save-npm-cache@1: {}
+    - restore-cocoapods-cache@2: {}
+    - cocoapods-install@2:
+        inputs:
+        - source_root_path: ios
+    - save-cocoapods-cache@1: {}
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            npx react-native bundle \
+              --platform ios \
+              --dev false \
+              --entry-file index.js \
+              --bundle-output ./build/main.jsbundle \
+              --assets-dest ./build
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: Create JS Bundle
+    - script@1:
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # Extract version from app.json using jq (JSON parser)
+            VERSION=$(jq -r '.version' package.json)
+
+            # Verify version extraction
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract version from package.json"
+              exit 1
+            fi
+
+            echo "Extracted version from package.json: $VERSION"
+
+
+            # You can also set it as MARKETING_VERSION directly
+            envman add --key MARKETING_VERSION --value "$VERSION"
+
+            echo "Environment variablesMARKETING_VERSION have been set to $VERSION"
+        title: Set Version
+    - script@1:
+        title: Set CodePushDeploymentKey
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # Define path to Info.plist
+            INFO_PLIST_PATH="$BITRISE_SOURCE_DIR/ios/BitriseReactNativeCodePushV2/Info.plist"
+
+            # Use PlistBuddy to update the CodePushDeploymentKey value
+            /usr/libexec/PlistBuddy -c "Set :CodePushDeploymentKey $IOS_PROD_DEPLOYMENT_KEY" "$INFO_PLIST_PATH"
+    - certificate-and-profile-installer@1: {}
+    - xcode-archive@5:
+        inputs:
+        - project_path: ios/BitriseReactNativeCodePushV2.xcworkspace
+        - scheme: BitriseReactNativeCodePushV2
+        - configuration: Release
+        - verbose_log: 'yes'
+        - xcodebuild_options: "CODE_SIGN_STYLE=\"Manual\"\ 
+
+            PROVISIONING_PROFILE=\"595cccbe-9879-4f9d-bf98-83124dd03643\"\ 
+
+            DEVELOPMENT_TEAM=\"DT2C2FZ7U2\"\ 
+
+            CODE_SIGN_IDENTITY=\"iPhone Developer\"
+
+            MARKETING_VERSION=$MARKETING_VERSION"
+    - deploy-to-bitrise-io@2: {}
+    triggers:
+      push: []
+  android_release:
+    status_report_name: Executing <target_id> for <project_title>
+    description: |
+      Installs dependencies.
+
+      Next steps:
+      - Add tests to your project and configure the workflow to run them.
+      - Check out [Getting started with Expo apps](https://devcenter.bitrise.io/en/getting-started/getting-started-with-expo-apps.html).
+    steps:
+    - git-clone@8: {}
+    - restore-npm-cache@2: {}
+    - npm@1:
+        title: npm install
+        inputs:
+        - command: install
+    - save-npm-cache@1: {}
+    - script@1:
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # Extract version from app.json using jq (JSON parser)
+            VERSION=$(jq -r '.version' package.json)
+
+            # Verify version extraction
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract version from package.json"
+              exit 1
+            fi
+
+            echo "Extracted version from package.json: $VERSION"
+
+
+            # You can also set it as MARKETING_VERSION directly
+            envman add --key APP_VERSION_NAME --value "$VERSION"
+            envman add --key APP_VERSION_CODE --value "$BITRISE_BUILD_NUMBER"
+
+            echo "Environment variable APP_VERSION_NAME has been set to $VERSION"
+            echo "Environment variable APP_VERSION_CODE has been set to $BITRISE_BUILD_NUMBER"
+        title: Set App Version
+    - script@1:
+        title: Set CodePushDeploymentKey
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -ex
+
+            # The file to modify
+            XML_FILE="$BITRISE_SOURCE_DIR/android/app/src/main/res/values/strings.xml"
+
+            # Echo the path to verify it's correct
+            echo "Checking path: $XML_FILE"
+
+            # Echo the current content of the file
+            echo "Current file contents:"
+            cat $XML_FILE
+
+            # Use a Python script to parse and update the XML
+            python -c "
+            import xml.etree.ElementTree as ET
+
+            # Preserve comments
+            tree = ET.parse('$XML_FILE', parser=ET.XMLParser(target=ET.TreeBuilder(insert_comments=True)))
+            root = tree.getroot()
+
+            # Find the string element with the name 'CodePushDeploymentKey'
+            # The .// prefix means it will search the entire tree
+            element_to_update = root.find(\".//string[@name='CodePushDeploymentKey']\")
+
+            if element_to_update is not None:
+                # Update the text of the element
+                element_to_update.text = '$ANDROID_PROD_DEPLOYMENT_KEY'
+                # Write the changes back to the file
+                tree.write('$XML_FILE', encoding='utf-8', xml_declaration=True)
+                print('Successfully updated CodePushDeploymentKey.')
+            else:
+                print('Error: Could not find the CodePushDeploymentKey string.')
+                exit(1)
+            "
+
+            # Optional: Display the updated file content
+            echo "Updated file contents:"
+            cat $XML_FILE
+
+            echo "Successfully updated CodePushDeploymentKey in strings.xml"
+    - android-build@1:
+        inputs:
+        - variant: release
+        - arguments: "-PappVersionName=$APP_VERSION"
+        - module: app
+        - project_location: "$BITRISE_SOURCE_DIR/android"
+    - deploy-to-bitrise-io@2: {}
+    triggers:
+      push: []
+  ios_build_for_simulator:
+    summary: Run your Xcode tests and create an IPA file to install your app on a
+      device or share it with your team.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests, export
+      an IPA file from the project and save it.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - cocoapods-install@2:
+        inputs:
+        - is_cache_disabled: true
+        - source_root_path: ios
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            npx react-native bundle \
+              --platform ios \
+              --dev false \
+              --entry-file index.js \
+              --bundle-output ./build/main.jsbundle \
+              --assets-dest ./build
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+        title: Create JS Bundle
+    - script@1:
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # Extract version from app.json using jq (JSON parser)
+            VERSION=$(jq -r '.version' package.json)
+
+            # Verify version extraction
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract version from package.json"
+              exit 1
+            fi
+
+            echo "Extracted version from package.json: $VERSION"
+
+
+            # You can also set it as MARKETING_VERSION directly
+            envman add --key MARKETING_VERSION --value "$VERSION"
+
+            echo "Environment variablesMARKETING_VERSION have been set to $VERSION"
+        title: Set Version
+    - script@1:
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # Define path to Info.plist
+            INFO_PLIST_PATH="$BITRISE_SOURCE_DIR/ios/BitriseReactNativeCodePushV2/Info.plist"
+
+            # Use PlistBuddy to update the CodePushDeploymentKey value
+            /usr/libexec/PlistBuddy -c "Set :CodePushDeploymentKey $IOS_PROD_DEPLOYMENT_KEY" "$INFO_PLIST_PATH"
+        title: Set CodePushDeploymentKey
+    - xcode-build-for-simulator@3:
+        inputs:
+        - configuration: release
+        - xcodebuild_options: |-
+            CODE_SIGN_IDENTITY=""
+            CODE_SIGNING_REQUIRED=NO
+            CODE_SIGNING_ALLOWED=NO
+            MARKETING_VERSION=$MARKETING_VERSION
+            CODEPUSH_KEY=$APPCENTER_IOS_PRODUCTION_DEPLOYMENT_KEY
+        - verbose_log: 'yes'
+    - script@1:
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -ex
+
+            # Create temp directory for logs
+            TEMP_LOG_DIR="/tmp/xcode_logs"
+            mkdir -p "$TEMP_LOG_DIR"
+
+            # Copy the Xcode logs to the temp directory
+            cp -R "$HOME/Library/Developer/Xcode/DerivedData/"*"/Logs" "$TEMP_LOG_DIR/" || true
+
+            # Also grab the raw xcodebuild log if it exists (from xcode-archive step)
+            if [ -f "$BITRISE_XCODE_RAW_RESULT_TEXT_PATH" ]; then
+            mkdir -p "$TEMP_LOG_DIR/raw_xcodebuild"
+            cp "$BITRISE_XCODE_RAW_RESULT_TEXT_PATH" "$TEMP_LOG_DIR/raw_xcodebuild/"
+            fi
+
+            # Zip the logs
+            cd /tmp
+            zip -r xcode_logs.zip xcode_logs
+
+            # Move the zip file to deploy directory
+            mv xcode_logs.zip "$BITRISE_DEPLOY_DIR/xcode_logs.zip"
+
+            echo "Xcode logs zipped and saved to artifacts"
+    - deploy-to-bitrise-io@2: {}
+  codepush_update_to_server:
+    summary: Run your Xcode tests and create an IPA file to install your app on a
+      device or share it with your team.
+    description: The workflow will first clone your Git repository, cache and
+      install your project's dependencies if any, run your Xcode tests, export
+      an IPA file from the project and save it.
+    steps:
+    - activate-ssh-key@4:
+        run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
+    - git-clone@8: {}
+    - npm@1:
+        inputs:
+        - command: install
+    - script@1:
+        title: Extract App Version
+        inputs:
+        - content: |-
+            #!/bin/bash
+            set -e
+
+            # Extract version from app.json using jq (JSON parser)
+            VERSION=$(jq -r '.version' package.json)
+
+            # Verify version extraction
+            if [ -z "$VERSION" ]; then
+              echo "Error: Could not extract version from package.json"
+              exit 1
+            fi
+
+            echo "Extracted version from package.json: $VERSION"
+
+            # Set the environment variable using envman
+            envman add --key APP_VERSION --value "$VERSION"
+
+            echo "Successfully set APP_VERSION=$VERSION"
+    - script@1:
+        title: Get Release Management Recipes
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            # write your script here
+            git clone https://github.com/bitrise-io/release-management-recipes
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        title: Generate iOS Update Bundle
+        inputs:
+        - content: |-
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            npx react-native bundle \
+              --platform ios \
+              --dev false \
+              --entry-file index.js \
+              --bundle-output ./build/main.jsbundle \
+              --assets-dest ./build
+
+            # Create zip archive
+            zip -r update.zip ./build
+
+            # or run a script from your repository, like:
+            # bash ./path/to/script.sh
+            # not just bash, e.g.:
+            # ruby ./path/to/script.rb
+    - script@1:
+        title: Upload iOS Update Bundle to Codepush Server
+        inputs:
+        - content: "#!/usr/bin/env bash
+
+            # fail if any commands fails
+
+            set -e
+
+            # make pipelines' return status equal the last command to exit with
+            a non-zero status, or zero if all commands exit successfully
+
+            set -o pipefail
+
+            # debug log
+
+            set -x
+
+
+            cd release-management-recipes
+
+
+            UPLOAD_RESPONSE=$(PACKAGE_PATH=../update.zip \\
+
+            \                AUTHORIZATION_TOKEN=$BITRISE_API_TOKEN \\
+
+            \                CONNECTED_APP_ID=$IOS_CONNECTED_APP_ID \\
+
+            \                DEPLOYMENT_ID=$IOS_PROD_DEPLOYMENT_ID \\
+
+            \                APP_VERSION=$APP_VERSION /bin/bash
+            ./api/upload_code_push_package.sh 2>&1)
+
+
+            EXIT_CODE=$?
+
+
+            if [ $EXIT_CODE -ne 0 ]; then
+
+            \  echo \"❌ upload_code_push_package.sh failed with exit code
+            $EXIT_CODE\"
+
+            \  echo \"$UPLOAD_RESPONSE\"
+
+            \  exit $EXIT_CODE
+
+            fi
+
+
+            # Take only the last line of the response (final/latest status JSON
+            object)
+
+            FINAL_RESPONSE=$(echo \"$UPLOAD_RESPONSE\" | tail -n1)
+
+
+            # Check explicitly for ERR_INTERNAL or other internal error
+            indicators
+
+            if echo \"$UPLOAD_RESPONSE\" | grep -q \"ERR_INTERNAL\"; then
+
+            \  ERROR_MESSAGE=$(echo \"$FINAL_RESPONSE\" | jq -r '.message' ||
+            echo \"Unknown error\")
+
+            \  echo \"❌ Server returned internal error: $ERROR_MESSAGE\"
+
+            \  exit 1
+
+            fi
+
+
+            # Now safely parse 'status' and 'status_reason' from the final
+            response line
+
+            PACKAGE_STATUS=$(echo \"$FINAL_RESPONSE\" | jq -r '.status' || echo
+            \"null\")
+
+            STATUS_REASON=$(echo \"$FINAL_RESPONSE\" | jq -r '.status_reason' ||
+            echo \"\")
+
+
+            if [ \"$PACKAGE_STATUS\" = \"processed_valid\" ]; then
+
+            \  echo \"✅ Package uploaded and processed successfully.\"
+
+            \  rm -rf ../build.zip\ 
+
+            \  rm -rf ../build
+
+            else
+
+            \  echo \"⚠️ Package upload unexpected status: $PACKAGE_STATUS -
+            Reason: $STATUS_REASON\"
+
+            \  exit 1
+
+            fi
+
+
+            cd ..\n"
+    - script@1:
+        title: Generate Android Update Bundle
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            npx react-native bundle \
+              --platform android \
+              --dev false \
+              --entry-file index.js \
+              --bundle-output ./build/index.android.bundle \
+              --assets-dest ./build
+
+            # Create zip archive
+            zip -r update.zip ./build
+    - script@1:
+        title: Upload Android Update Bundle to Codepush Server
+        inputs:
+        - content: |
+            #!/usr/bin/env bash
+            # fail if any commands fails
+            set -e
+            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
+            set -o pipefail
+            # debug log
+            set -x
+
+            cd release-management-recipes
+
+            UPLOAD_RESPONSE=$(PACKAGE_PATH=../update.zip \
+                            AUTHORIZATION_TOKEN=$BITRISE_API_TOKEN \
+                            CONNECTED_APP_ID=$ANDROID_CONNECTED_APP_ID \
+                            DEPLOYMENT_ID=$ANDROID_PROD_DEPLOYMENT_ID \
+                            APP_VERSION=$APP_VERSION /bin/bash ./api/upload_code_push_package.sh 2>&1)
+
+            EXIT_CODE=$?
+
+            if [ $EXIT_CODE -ne 0 ]; then
+              echo "❌ upload_code_push_package.sh failed with exit code $EXIT_CODE"
+              echo "$UPLOAD_RESPONSE"
+              exit $EXIT_CODE
+            fi
+
+            # Take only the last line of the response (final/latest status JSON object)
+            FINAL_RESPONSE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
+
+            # Check explicitly for ERR_INTERNAL or other internal error indicators
+            if echo "$UPLOAD_RESPONSE" | grep -q "ERR_INTERNAL"; then
+              ERROR_MESSAGE=$(echo "$FINAL_RESPONSE" | jq -r '.message' || echo "Unknown error")
+              echo "❌ Server returned internal error: $ERROR_MESSAGE"
+              exit 1
+            fi
+
+            # Now safely parse 'status' and 'status_reason' from the final response line
+            PACKAGE_STATUS=$(echo "$FINAL_RESPONSE" | jq -r '.status' || echo "null")
+            STATUS_REASON=$(echo "$FINAL_RESPONSE" | jq -r '.status_reason' || echo "")
+
+            if [ "$PACKAGE_STATUS" = "processed_valid" ]; then
+              echo "✅ Package uploaded and processed successfully."
+            else
+              echo "⚠️ Package upload unexpected status: $PACKAGE_STATUS - Reason: $STATUS_REASON"
+              exit 1
+            fi
+
+            cd ..
+    triggers:
+      pull_request:
+      - target_branch: updates
+        label: release-update
+meta:
+  bitrise.io:
+    stack: osx-xcode-16.0.x
+    machine_type_id: g2.mac.medium
+app:
+  envs:
+  - BITRISE_PROJECT_PATH: ios/BitriseReactNativeCodePushV2.xcworkspace
+    opts:
+      is_expand: false
+  - BITRISE_SCHEME: BitriseReactNativeCodePushV2
+    opts:
+      is_expand: false
+  - BITRISE_DISTRIBUTION_METHOD: development
+    opts:
+      is_expand: false
+  - IOS_CONNECTED_APP_ID: 32a7e0c9-3a12-4a56-a932-0a1172a7a11e
+    opts:
+      is_expand: false
+  - ANDROID_CONNECTED_APP_ID: 19c70788-9d53-419f-a7d0-0c66a2a68823
+    opts:
+      is_expand: false
+  - IOS_PROD_DEPLOYMENT_ID: c76c3a4f-1b21-44c3-97bc-ea6ada183874
+    opts:
+      is_expand: false
+  - ANDROID_PROD_DEPLOYMENT_ID: b90a9535-1f99-4829-98fa-2d34f325c5c7
+    opts:
+      is_expand: false
+pipelines:
+  release:
+    workflows:
+      ios_release: {}
+      android_release: {}
+    triggers:
+      pull_request:
+      - target_branch: main
+        label: release

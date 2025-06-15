@@ -1,97 +1,55 @@
-This is a new [**React Native**](https://reactnative.dev) project, bootstrapped using [`@react-native-community/cli`](https://github.com/react-native-community/cli).
+An Example React Native Expo Project that uses Bitrise CodePush Server
 
-# Getting Started
+### Setup
 
-> **Note**: Make sure you have completed the [Set Up Your Environment](https://reactnative.dev/docs/set-up-your-environment) guide before proceeding.
+## Create a Bitrise Project
 
-## Step 1: Start Metro
+In Bitrise add a project and use this repository as the source (you can fork the repository to your account if needed). After the project is created, [switch the yaml source](https://devcenter.bitrise.io/en/builds/configuration-yaml/managing-an-app-s-bitrise-yml-file.html#storing-the-bitrise-yml-file-in-your-repository) to the repository. The workflows/pipeline defined in bitrise.yml will be shown in Bitirse.
+1. `release` pipeline that builds the release packages for ios and android
+2. `codepush_update_to_server` workflow that generates the update bundles and uploads to Bitrise CodePush Server
+3. `ios_simulator` workflow that generates the app bundle for ios simulator
 
-First, you will need to run **Metro**, the JavaScript build tool for React Native.
+## Bitrise CodePush Server Setup
 
-To start the Metro dev server, run the following command from the root of your React Native project:
-
-```sh
-# Using npm
-npm start
-
-# OR using Yarn
-yarn start
+1. [Create connected apps](https://devcenter.bitrise.io/en/release-management/getting-started-with-release-management/adding-a-new-app-to-release-management.html) in Release Management, one for ios and another for android. You will see the connected app id in the url of the connect app page. 
+2. For each, create a CodePush Deployment: you can [use the API](https://api.bitrise.io/release-management/api-docs/index.html#/CodePush%20-%20Deployments/CreateCodePushDeployment) to do that.
+   You would need:
+   * connected-app-id from step 1
+   * A [personal access token](https://devcenter.bitrise.io/en/accounts/personal-access-tokens.html) or [workspace api token](https://devcenter.bitrise.io/en/workspaces/workspace-api-token.html)
+   * Choose an appropriate name for the deployment
 ```
+ curl -X 'POST' \
+  'https://api.bitrise.io/release-management/v1/connected-apps/<connected-app-id>/code-push/deployments' \
+  -H 'accept: application/json' \
+  -H 'authorization: <access-token>' \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "name": "prod"
+  }'
 
-## Step 2: Build and run your app
-
-With Metro running, open a new terminal window/pane from the root of your React Native project, and use one of the following commands to build and run your Android or iOS app:
-
-### Android
-
-```sh
-# Using npm
-npm run android
-
-# OR using Yarn
-yarn android
 ```
+3. Create the following [secrets in Bitrise](https://devcenter.bitrise.io/en/builds/secrets.html)
+   * IOS_PROD_DEPLOYMENT_KEY - set it to `key` from the response in step 2 for ios app
+   * ANDROID_PROD_DEPLOYMENT_KEY - set it to `key` from the response in step 2 for android app
+   * BITRISE_API_TOKEN - set it to the value to the personal access token or workspace api token used in step 2
+4. The `id` from response in step 2, and connected app id from step 1 have have to be set as the value for [Bitirse env variables](https://devcenter.bitrise.io/en/builds/environment-variables.html#setting-an-env-var-in-the-workflow-editor).
+   * IOS_PROD_DEPLOYMENT_ID - from step 2
+   * ANDROID_PROD_DEPLOYMENT_ID - from step 2
+   * IOS_CONNECTED_APP_ID - from step 1
+   * ANDROID_CONNECTED_APP_ID - from step 1
 
-### iOS
 
-For iOS, remember to install CocoaPods dependencies (this only needs to be run on first clone or after updating native deps).
+## Creating a new Release
+1. Create a new Pull Request with `main` branch as destination branch. Check to make sure the `version` has been set correctly in `app.config.js`
+2. Add a `release` tag to the PR
+3. This will trigger the `release` pipeline in bitrise and create a ios and android release
 
-The first time you create a new project, run the Ruby bundler to install CocoaPods itself:
-
-```sh
-bundle install
-```
-
-Then, and every time you update your native dependencies, run:
-
-```sh
-bundle exec pod install
-```
-
-For more information, please visit [CocoaPods Getting Started guide](https://guides.cocoapods.org/using/getting-started.html).
-
-```sh
-# Using npm
-npm run ios
-
-# OR using Yarn
-yarn ios
-```
-
-If everything is set up correctly, you should see your new app running in the Android Emulator, iOS Simulator, or your connected device.
-
-This is one way to run your app — you can also build it directly from Android Studio or Xcode.
-
-## Step 3: Modify your app
-
-Now that you have successfully run the app, let's make changes!
-
-Open `App.tsx` in your text editor of choice and make some changes. When you save, your app will automatically update and reflect these changes — this is powered by [Fast Refresh](https://reactnative.dev/docs/fast-refresh).
-
-When you want to forcefully reload, for example to reset the state of your app, you can perform a full reload:
-
-- **Android**: Press the <kbd>R</kbd> key twice or select **"Reload"** from the **Dev Menu**, accessed via <kbd>Ctrl</kbd> + <kbd>M</kbd> (Windows/Linux) or <kbd>Cmd ⌘</kbd> + <kbd>M</kbd> (macOS).
-- **iOS**: Press <kbd>R</kbd> in iOS Simulator.
-
-## Congratulations! :tada:
-
-You've successfully run and modified your React Native App. :partying_face:
-
-### Now what?
-
-- If you want to add this new React Native code to an existing application, check out the [Integration guide](https://reactnative.dev/docs/integration-with-existing-apps).
-- If you're curious to learn more about React Native, check out the [docs](https://reactnative.dev/docs/getting-started).
-
-# Troubleshooting
-
-If you're having issues getting the above steps to work, see the [Troubleshooting](https://reactnative.dev/docs/troubleshooting) page.
-
-# Learn More
-
-To learn more about React Native, take a look at the following resources:
-
-- [React Native Website](https://reactnative.dev) - learn more about React Native.
-- [Getting Started](https://reactnative.dev/docs/environment-setup) - an **overview** of React Native and how setup your environment.
-- [Learn the Basics](https://reactnative.dev/docs/getting-started) - a **guided tour** of the React Native **basics**.
-- [Blog](https://reactnative.dev/blog) - read the latest official React Native **Blog** posts.
-- [`@facebook/react-native`](https://github.com/facebook/react-native) - the Open Source; GitHub **repository** for React Native.
+## Creating & Releasing CodePush Updates
+1. Create an `updates` branch that is a clone of `main` branch (if one doesn't exist already)
+2. Create a new Pull Request with `updates` branch as destination
+3. Add `release-update` tag to the PR
+4. This will trigger the `codepush_update_to_server` workflow. The workflow will
+   1. create an update package for ios
+   2. upload the ios update package to Bitrise CodePush Server
+   3. create an update package for android
+   4. upload the android updated package to Bitrise CodePush Server
