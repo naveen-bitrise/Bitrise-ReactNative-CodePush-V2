@@ -1,5 +1,5 @@
 <resources>
     <string name="app_name">BitriseReactNativeCodePushV2</string>
     <string name="CodePushDeploymentKey" translatable="false"></string>
-    <string name="CodePushServerUrl" translatable="false">https://codepush.bitrise.io</string>
+    <string name="CodePushServerUrl" translatable="false">https://c8e286a505ee7c81.codepush.bitrise.io</string>
 </resources>

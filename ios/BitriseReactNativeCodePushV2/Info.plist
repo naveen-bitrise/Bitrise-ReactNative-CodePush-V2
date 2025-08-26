@@ -51,6 +51,6 @@
 	<key>CodePushDeploymentKey</key>
     <string></string>
     <key>CodePushServerURL</key>
-    <string>https://codepush.bitrise.io</string>
+    <string>https://c8e286a505ee7c81.codepush.bitrise.io</string>
 </dict>
 </plist>
