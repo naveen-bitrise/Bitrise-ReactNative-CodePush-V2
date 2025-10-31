@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   SafeAreaView,
   StyleSheet,
@@ -9,7 +9,8 @@ import {
   FlatList,
   StatusBar,
   Alert,
-  Image
+  Image,
+  AppState,
 } from 'react-native';
 import codePush from '@code-push-next/react-native-code-push';
 
@@ -20,14 +21,116 @@ interface Todo {
   completed: boolean;
 }
 
+interface UpdateMetadata {
+  type: string;
+  severity: string;
+  description: string;
+}
+
 const App = () => {
   const [todos, setTodos] = useState<Todo[]>([]);
   const [todoText, setTodoText] = useState('');
+  const isChecking = useRef(false);
+  const listenerSetup = useRef(false);
 
-    // Log current package information on app start
-    useEffect(() => {
+  const setupAppStateListener = () => {
+    if (listenerSetup.current) {
+      console.log('[CodePush] AppState listener already set up, skipping...');
+      return null;
+    }
 
-      // Add custom error handler
+    // Listen for app state changes
+    let appState = AppState.currentState;
+    console.log('[CodePush] Initial app state:', appState);
+    
+    const handleAppStateChange = (nextAppState: string) => {
+      console.log(`[CodePush] App state change: ${appState} -> ${nextAppState}`);
+      if (appState.match(/inactive|background/) && nextAppState === 'active') {
+        console.log('[CodePush] App foregrounded, checking for updates...');
+        checkForUpdate();
+      }
+      appState = nextAppState as any;
+    };
+
+    console.log('[CodePush] Setting up AppState listener...');
+    const subscription = AppState.addEventListener('change', handleAppStateChange);
+    console.log('[CodePush] AppState listener set up:', subscription);
+    
+    listenerSetup.current = true;
+    return subscription;
+  };
+
+
+  const checkForUpdate = async () => {
+    if (isChecking.current) {
+      return;
+    }
+
+    try {
+      isChecking.current = true;
+      console.log('[CodePush] Checking for update manually...');
+
+      const update = await codePush.checkForUpdate();
+
+      if (update) {
+        console.log('[CodePush] Update found:', update);
+
+        try {
+          const metadata: UpdateMetadata = JSON.parse(update.description || '{}');
+          console.log('[CodePush] Parsed metadata:', metadata);
+
+          const severity = parseInt(metadata.severity || '0', 10);
+
+          if (severity > 3) {
+            console.log('[CodePush] High severity update (>3), installing...');
+
+            Alert.alert(
+              'Update Available',
+              `${metadata.description}\n\nThis update will be installed now.`,
+              [
+                {
+                  text: 'Install Now',
+                  onPress: async () => {
+                    try {
+                      console.log('[CodePush] Starting immediate sync...');
+                      console.log('[CodePush] Update object:', update);
+                      
+                      // Download and install the update
+                      console.log('[CodePush] Downloading update...');
+                      const downloadedPackage = await update.download();
+                      console.log('[CodePush] Download completed:', downloadedPackage);
+                      
+                      console.log('[CodePush] Installing update...');
+                     
+                      await downloadedPackage.install(codePush.InstallMode.IMMEDIATE);
+                      console.log('[CodePush] Install completed, app should restart now');
+                    } catch (error) {
+                      console.log('[CodePush] Error during manual update:', error);
+                    }
+                  },
+                },
+              ],
+            );
+          } else {
+            console.log(`[CodePush] Low severity update (${severity}), skipping installation`);
+          }
+        } catch (parseError) {
+          console.log('[CodePush] Error parsing update metadata:', parseError);
+        }
+      } else {
+        console.log('[CodePush] No update available');
+      }
+    } catch (error) {
+      console.log('[CodePush] Error checking for update:', error);
+    } finally {
+      isChecking.current = false;
+    }
+  };
+
+  const initializeApp = () => {
+    console.log('[CodePush] ==> Initializing app instance');
+    
+    // Add custom error handler
     const originalConsoleError = console.error.bind(console);
     console.error = function(message, ...args) {
       console.log("[CodePushDebug] Error intercepted:", message, ...args);
@@ -49,6 +152,7 @@ const App = () => {
         });
     };
 
+    // Log current package information on app start
     codePush.getUpdateMetadata().then((metadata) => {
       if (metadata) {
         console.log('[CodePush] Running binary version: ' + metadata.appVersion);
@@ -58,17 +162,32 @@ const App = () => {
       } else {
         console.log('[CodePush] Running binary version with no CodePush updates installed');
       }
-
-      // After getting metadata, check for updates
-      console.log('[CodePush] Checking for update.');
-
-      
-
     }).catch(err => {
       console.log('[CodePush] Error getting metadata:', err);
     });
 
+    // Check for updates (this will also setup AppState listener if needed)
+    checkForUpdate();
+
+    if (!listenerSetup.current) {
+        console.log('[CodePush] Setting up AppState listener ...');
+        setupAppStateListener();
+      }
     
+    return null;
+  };
+
+  useEffect(() => {
+    console.log('[CodePush] ==> App useEffect triggered - fresh app instance');
+    
+    // Initialize the app
+    initializeApp();
+    
+    return () => {
+      console.log('[CodePush] Cleaning up listeners...');
+      // Reset the listener setup flag so it can be re-created
+      listenerSetup.current = false;
+    };
   }, []);
 
   // Add new todo item
@@ -127,10 +246,10 @@ const App = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
-        <Text style={styles.title}>Todo List Tests</Text>
+        <Text style={styles.title}>Todo List Tests v0.0.2+3</Text>
         <Text style={styles.subtitle}>With CodePush Integration *</Text>
-        <Image 
-          source={require('./assets/favicon.png')} 
+        <Image
+          source={require('./assets/favicon.png')}
           style={styles.image}
         />
       </View>
@@ -273,25 +392,4 @@ const styles = StyleSheet.create({
   },
 });
 
-
-// CodePush configuration
-const codePushOptions = {
-  checkFrequency: codePush.CheckFrequency.ON_APP_START,
-  installMode: codePush.InstallMode.IMMEDIATE,
-  mandatoryInstallMode: codePush.InstallMode.IMMEDIATE,
-  updateDialog: {
-    appendReleaseDescription: true,
-    title: "Update Available",
-    descriptionPrefix: "\n\nRelease Notes:\n",
-    mandatoryContinueButtonLabel: "Install Now",
-    mandatoryUpdateMessage: "An update is available that must be installed.",
-    optionalIgnoreButtonLabel: "Later",
-    optionalInstallButtonLabel: "Install Now",
-    optionalUpdateMessage: "An update is available. Would you like to install it?"
-  }
-};
-
-
-// Wrap and export your app with CodePush
-export default codePush(codePushOptions)(App);
-//export default codePush(App);
+export default App;

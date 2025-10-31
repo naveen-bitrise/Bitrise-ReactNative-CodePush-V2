@@ -554,6 +554,7 @@ workflows:
                             AUTHORIZATION_TOKEN=$BITRISE_API_TOKEN \
                             CONNECTED_APP_ID=$ANDROID_CONNECTED_APP_ID \
                             DEPLOYMENT_ID=$ANDROID_PROD_DEPLOYMENT_ID \
+                            DESCRIPTION='{"hotfix": true, "severity": 5, "description": "Critical bug fix"}' \
                             APP_VERSION=$APP_VERSION /bin/bash ./api/upload_code_push_package.sh 2>&1)
 
             EXIT_CODE=$?
