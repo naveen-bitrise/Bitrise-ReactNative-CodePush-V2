@@ -32,6 +32,7 @@ const App = () => {
   const [todoText, setTodoText] = useState('');
   const isChecking = useRef(false);
   const listenerSetup = useRef(false);
+  const lastCheckTime = useRef<number>(0);
 
   const setupAppStateListener = () => {
     if (listenerSetup.current) {
@@ -46,8 +47,16 @@ const App = () => {
     const handleAppStateChange = (nextAppState: string) => {
       console.log(`[CodePush] App state change: ${appState} -> ${nextAppState}`);
       if (appState.match(/inactive|background/) && nextAppState === 'active') {
-        console.log('[CodePush] App foregrounded, checking for updates...');
-        checkForUpdate();
+        const now = Date.now();
+        const timeSinceLastCheck = now - lastCheckTime.current;
+        const twentyFourHours = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+        
+        if (timeSinceLastCheck >= twentyFourHours) {
+          console.log('[CodePush] App foregrounded, 24+ hours since last check, checking for updates...');
+          checkForUpdate();
+        } else {
+          console.log(`[CodePush] App foregrounded, but only ${Math.round(timeSinceLastCheck / (60 * 60 * 1000))} hours since last check, skipping`);
+        }
       }
       appState = nextAppState as any;
     };
@@ -68,6 +77,7 @@ const App = () => {
 
     try {
       isChecking.current = true;
+      lastCheckTime.current = Date.now(); // Record this check time
       console.log('[CodePush] Checking for update manually...');
 
       const update = await codePush.checkForUpdate();
@@ -82,30 +92,26 @@ const App = () => {
           const severity = parseInt(metadata.severity || '0', 10);
 
           if (severity > 3) {
-            console.log('[CodePush] High severity update (>3), installing...');
+            console.log('[CodePush] High severity update (>3), downloading...');
+
+            // Download the update first
+            console.log('[CodePush] Downloading update...');
+            const downloadedPackage = await update.download();
+            console.log('[CodePush] Download completed, showing install dialog');
 
             Alert.alert(
               'Update Available',
-              `${metadata.description}\n\nThis update will be installed now.`,
+              `${metadata.description}\n\nUpdate has been downloaded and is ready to install.`,
               [
                 {
                   text: 'Install Now',
                   onPress: async () => {
                     try {
-                      console.log('[CodePush] Starting immediate sync...');
-                      console.log('[CodePush] Update object:', update);
-                      
-                      // Download and install the update
-                      console.log('[CodePush] Downloading update...');
-                      const downloadedPackage = await update.download();
-                      console.log('[CodePush] Download completed:', downloadedPackage);
-                      
                       console.log('[CodePush] Installing update...');
-                     
                       await downloadedPackage.install(codePush.InstallMode.IMMEDIATE);
                       console.log('[CodePush] Install completed, app should restart now');
                     } catch (error) {
-                      console.log('[CodePush] Error during manual update:', error);
+                      console.log('[CodePush] Error during installation:', error);
                     }
                   },
                 },
@@ -246,7 +252,7 @@ const App = () => {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="dark-content" />
       <View style={styles.header}>
-        <Text style={styles.title}>Todo List Tests v0.0.2+3</Text>
+        <Text style={styles.title}>Todo List Tests v0.0.2+4</Text>
         <Text style={styles.subtitle}>With CodePush Integration *</Text>
         <Image
           source={require('./assets/favicon.png')}
