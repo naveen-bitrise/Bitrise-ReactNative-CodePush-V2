@@ -1,7 +1,7 @@
 ---
 format_version: '13'
 default_step_lib_source: https://github.com/bitrise-io/bitrise-steplib.git
-project_type: ios
+project_type: react-native
 workflows:
   ios_release:
     status_report_name: Executing <target_id> for <project_title>
@@ -213,386 +213,123 @@ workflows:
     triggers:
       push: []
   ios_build_for_simulator:
-    summary: Run your Xcode tests and create an IPA file to install your app on a
-      device or share it with your team.
-    description: The workflow will first clone your Git repository, cache and
-      install your project's dependencies if any, run your Xcode tests, export
-      an IPA file from the project and save it.
+    summary: Build a Release (CodePush-enabled) .app for the iOS Simulator.
+    description: Clones the repo, installs JS deps and Pods, injects the CodePush
+      deployment key and builds a Release simulator .app, exported as a build artifact.
     steps:
     - activate-ssh-key@4:
         run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
     - git-clone@8: {}
-    - npm@1:
+    - npm@3:
         inputs:
-        - command: install
-    - cocoapods-install@2:
+        - command: ci
+    - cocoapods-install@3:
         inputs:
         - is_cache_disabled: true
         - source_root_path: ios
     - script@1:
-        inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            # write your script here
-            npx react-native bundle \
-              --platform ios \
-              --dev false \
-              --entry-file index.js \
-              --bundle-output ./build/main.jsbundle \
-              --assets-dest ./build
-
-            # or run a script from your repository, like:
-            # bash ./path/to/script.sh
-            # not just bash, e.g.:
-            # ruby ./path/to/script.rb
-        title: Create JS Bundle
-    - script@1:
+        title: Set Version
         inputs:
         - content: |
             #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            # Extract version from app.json using jq (JSON parser)
+            set -euxo pipefail
             VERSION=$(jq -r '.version' package.json)
-
-            # Verify version extraction
-            if [ -z "$VERSION" ]; then
+            if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
               echo "Error: Could not extract version from package.json"
               exit 1
             fi
-
-            echo "Extracted version from package.json: $VERSION"
-
-
-            # You can also set it as MARKETING_VERSION directly
             envman add --key MARKETING_VERSION --value "$VERSION"
-
-            echo "Environment variablesMARKETING_VERSION have been set to $VERSION"
-        title: Set Version
     - script@1:
+        title: Set CodePushDeploymentKey
         inputs:
         - content: |-
             #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            # Define path to Info.plist
+            set -euo pipefail
+            if [ -z "${IOS_PROD_DEPLOYMENT_KEY:-}" ]; then
+              echo "Error: IOS_PROD_DEPLOYMENT_KEY secret is not set"
+              exit 1
+            fi
             INFO_PLIST_PATH="$BITRISE_SOURCE_DIR/ios/BitriseReactNativeCodePushV2/Info.plist"
-
-            # Use PlistBuddy to update the CodePushDeploymentKey value
             /usr/libexec/PlistBuddy -c "Set :CodePushDeploymentKey $IOS_PROD_DEPLOYMENT_KEY" "$INFO_PLIST_PATH"
-        title: Set CodePushDeploymentKey
     - xcode-build-for-simulator@3:
         inputs:
-        - configuration: release
+        - configuration: Release
         - xcodebuild_options: |-
             CODE_SIGN_IDENTITY=""
             CODE_SIGNING_REQUIRED=NO
             CODE_SIGNING_ALLOWED=NO
             MARKETING_VERSION=$MARKETING_VERSION
-            CODEPUSH_KEY=$APPCENTER_IOS_PRODUCTION_DEPLOYMENT_KEY
         - verbose_log: 'yes'
     - script@1:
+        title: Zip Xcode logs
+        is_always_run: true
         inputs:
         - content: |-
             #!/bin/bash
             set -ex
-
-            # Create temp directory for logs
             TEMP_LOG_DIR="/tmp/xcode_logs"
             mkdir -p "$TEMP_LOG_DIR"
-
-            # Copy the Xcode logs to the temp directory
             cp -R "$HOME/Library/Developer/Xcode/DerivedData/"*"/Logs" "$TEMP_LOG_DIR/" || true
-
-            # Also grab the raw xcodebuild log if it exists (from xcode-archive step)
-            if [ -f "$BITRISE_XCODE_RAW_RESULT_TEXT_PATH" ]; then
-            mkdir -p "$TEMP_LOG_DIR/raw_xcodebuild"
-            cp "$BITRISE_XCODE_RAW_RESULT_TEXT_PATH" "$TEMP_LOG_DIR/raw_xcodebuild/"
+            if [ -f "${BITRISE_XCODE_RAW_RESULT_TEXT_PATH:-}" ]; then
+              mkdir -p "$TEMP_LOG_DIR/raw_xcodebuild"
+              cp "$BITRISE_XCODE_RAW_RESULT_TEXT_PATH" "$TEMP_LOG_DIR/raw_xcodebuild/"
             fi
-
-            # Zip the logs
-            cd /tmp
-            zip -r xcode_logs.zip xcode_logs
-
-            # Move the zip file to deploy directory
+            cd /tmp && zip -r xcode_logs.zip xcode_logs
             mv xcode_logs.zip "$BITRISE_DEPLOY_DIR/xcode_logs.zip"
-
-            echo "Xcode logs zipped and saved to artifacts"
     - deploy-to-bitrise-io@2: {}
   codepush_update_to_server:
-    summary: Run your Xcode tests and create an IPA file to install your app on a
-      device or share it with your team.
-    description: The workflow will first clone your Git repository, cache and
-      install your project's dependencies if any, run your Xcode tests, export
-      an IPA file from the project and save it.
+    summary: Bundle the JS and publish CodePush OTA updates for iOS and Android.
+    description: Clones the repo, installs JS deps, then uses the Bitrise CodePush
+      Publish step to bundle and publish an OTA update to the prod deployment of
+      the iOS and Android Release Management apps, targeting the version in package.json.
     steps:
     - activate-ssh-key@4:
         run_if: '{{getenv "SSH_RSA_PRIVATE_KEY" | ne ""}}'
     - git-clone@8: {}
-    - npm@1:
+    - npm@3:
         inputs:
-        - command: install
+        - command: ci
     - script@1:
         title: Extract App Version
         inputs:
         - content: |-
             #!/bin/bash
-            set -e
-
-            # Extract version from app.json using jq (JSON parser)
+            set -euo pipefail
             VERSION=$(jq -r '.version' package.json)
-
-            # Verify version extraction
-            if [ -z "$VERSION" ]; then
+            if [ -z "$VERSION" ] || [ "$VERSION" = "null" ]; then
               echo "Error: Could not extract version from package.json"
               exit 1
             fi
-
-            echo "Extracted version from package.json: $VERSION"
-
-            # Set the environment variable using envman
             envman add --key APP_VERSION --value "$VERSION"
-
-            echo "Successfully set APP_VERSION=$VERSION"
-    - script@1:
-        title: Get Release Management Recipes
+            echo "APP_VERSION=$VERSION"
+    - codepush-publish@1:
+        title: CodePush Publish (iOS)
         inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            # write your script here
-            git clone https://github.com/bitrise-io/release-management-recipes
-
-            # or run a script from your repository, like:
-            # bash ./path/to/script.sh
-            # not just bash, e.g.:
-            # ruby ./path/to/script.rb
-    - script@1:
-        title: Generate iOS Update Bundle
+        - platform: ios
+        - app_id: $IOS_CONNECTED_APP_ID
+        - deployment: $IOS_PROD_DEPLOYMENT_ID
+        - app_version: $APP_VERSION
+        - api_token: $BITRISE_API_TOKEN
+        - skip_dependency_install: 'true'
+        - description: $GIT_CLONE_COMMIT_MESSAGE_SUBJECT
+    - codepush-publish@1:
+        title: CodePush Publish (Android)
         inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            npx react-native bundle \
-              --platform ios \
-              --dev false \
-              --entry-file index.js \
-              --bundle-output ./build/main.jsbundle \
-              --assets-dest ./build
-
-            # Create zip archive
-            zip -r update.zip ./build
-
-            # or run a script from your repository, like:
-            # bash ./path/to/script.sh
-            # not just bash, e.g.:
-            # ruby ./path/to/script.rb
-    - script@1:
-        title: Upload iOS Update Bundle to Codepush Server
-        inputs:
-        - content: "#!/usr/bin/env bash
-
-            # fail if any commands fails
-
-            set -e
-
-            # make pipelines' return status equal the last command to exit with
-            a non-zero status, or zero if all commands exit successfully
-
-            set -o pipefail
-
-            # debug log
-
-            set -x
-
-
-            cd release-management-recipes
-
-
-            UPLOAD_RESPONSE=$(PACKAGE_PATH=../update.zip \\
-
-            \                AUTHORIZATION_TOKEN=$BITRISE_API_TOKEN \\
-
-            \                CONNECTED_APP_ID=$IOS_CONNECTED_APP_ID \\
-
-            \                DEPLOYMENT_ID=$IOS_PROD_DEPLOYMENT_ID \\
-
-            \                APP_VERSION=$APP_VERSION /bin/bash
-            ./api/upload_code_push_package.sh 2>&1)
-
-
-            EXIT_CODE=$?
-
-
-            if [ $EXIT_CODE -ne 0 ]; then
-
-            \  echo \"❌ upload_code_push_package.sh failed with exit code
-            $EXIT_CODE\"
-
-            \  echo \"$UPLOAD_RESPONSE\"
-
-            \  exit $EXIT_CODE
-
-            fi
-
-
-            # Take only the last line of the response (final/latest status JSON
-            object)
-
-            FINAL_RESPONSE=$(echo \"$UPLOAD_RESPONSE\" | tail -n1)
-
-
-            # Check explicitly for ERR_INTERNAL or other internal error
-            indicators
-
-            if echo \"$UPLOAD_RESPONSE\" | grep -q \"ERR_INTERNAL\"; then
-
-            \  ERROR_MESSAGE=$(echo \"$FINAL_RESPONSE\" | jq -r '.message' ||
-            echo \"Unknown error\")
-
-            \  echo \"❌ Server returned internal error: $ERROR_MESSAGE\"
-
-            \  exit 1
-
-            fi
-
-
-            # Now safely parse 'status' and 'status_reason' from the final
-            response line
-
-            PACKAGE_STATUS=$(echo \"$FINAL_RESPONSE\" | jq -r '.status' || echo
-            \"null\")
-
-            STATUS_REASON=$(echo \"$FINAL_RESPONSE\" | jq -r '.status_reason' ||
-            echo \"\")
-
-
-            if [ \"$PACKAGE_STATUS\" = \"processed_valid\" ]; then
-
-            \  echo \"✅ Package uploaded and processed successfully.\"
-
-            \  rm -rf ../build.zip\ 
-
-            \  rm -rf ../build
-
-            else
-
-            \  echo \"⚠️ Package upload unexpected status: $PACKAGE_STATUS -
-            Reason: $STATUS_REASON\"
-
-            \  exit 1
-
-            fi
-
-
-            cd ..\n"
-    - script@1:
-        title: Generate Android Update Bundle
-        inputs:
-        - content: |
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            npx react-native bundle \
-              --platform android \
-              --dev false \
-              --entry-file index.js \
-              --bundle-output ./build/index.android.bundle \
-              --assets-dest ./build
-
-            # Create zip archive
-            zip -r update.zip ./build
-    - script@1:
-        title: Upload Android Update Bundle to Codepush Server
-        inputs:
-        - content: |
-            #!/usr/bin/env bash
-            # fail if any commands fails
-            set -e
-            # make pipelines' return status equal the last command to exit with a non-zero status, or zero if all commands exit successfully
-            set -o pipefail
-            # debug log
-            set -x
-
-            cd release-management-recipes
-
-            UPLOAD_RESPONSE=$(PACKAGE_PATH=../update.zip \
-                            AUTHORIZATION_TOKEN=$BITRISE_API_TOKEN \
-                            CONNECTED_APP_ID=$ANDROID_CONNECTED_APP_ID \
-                            DEPLOYMENT_ID=$ANDROID_PROD_DEPLOYMENT_ID \
-                            APP_VERSION=$APP_VERSION /bin/bash ./api/upload_code_push_package.sh 2>&1)
-
-            EXIT_CODE=$?
-
-            if [ $EXIT_CODE -ne 0 ]; then
-              echo "❌ upload_code_push_package.sh failed with exit code $EXIT_CODE"
-              echo "$UPLOAD_RESPONSE"
-              exit $EXIT_CODE
-            fi
-
-            # Take only the last line of the response (final/latest status JSON object)
-            FINAL_RESPONSE=$(echo "$UPLOAD_RESPONSE" | tail -n1)
-
-            # Check explicitly for ERR_INTERNAL or other internal error indicators
-            if echo "$UPLOAD_RESPONSE" | grep -q "ERR_INTERNAL"; then
-              ERROR_MESSAGE=$(echo "$FINAL_RESPONSE" | jq -r '.message' || echo "Unknown error")
-              echo "❌ Server returned internal error: $ERROR_MESSAGE"
-              exit 1
-            fi
-
-            # Now safely parse 'status' and 'status_reason' from the final response line
-            PACKAGE_STATUS=$(echo "$FINAL_RESPONSE" | jq -r '.status' || echo "null")
-            STATUS_REASON=$(echo "$FINAL_RESPONSE" | jq -r '.status_reason' || echo "")
-
-            if [ "$PACKAGE_STATUS" = "processed_valid" ]; then
-              echo "✅ Package uploaded and processed successfully."
-            else
-              echo "⚠️ Package upload unexpected status: $PACKAGE_STATUS - Reason: $STATUS_REASON"
-              exit 1
-            fi
-
-            cd ..
+        - platform: android
+        - app_id: $ANDROID_CONNECTED_APP_ID
+        - deployment: $ANDROID_PROD_DEPLOYMENT_ID
+        - app_version: $APP_VERSION
+        - api_token: $BITRISE_API_TOKEN
+        - skip_dependency_install: 'true'
+        - description: $GIT_CLONE_COMMIT_MESSAGE_SUBJECT
+    - deploy-to-bitrise-io@2: {}
     triggers:
       pull_request:
       - target_branch: updates
         label: release-update
 meta:
   bitrise.io:
-    stack: osx-xcode-16.0.x
+    stack: osx-xcode-26.6.x
     machine_type_id: g2.mac.medium
 app:
   envs:

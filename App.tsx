@@ -35,15 +35,15 @@ const App = () => {
     };
     
     // Monitor network requests
-    const originalFetch = global.fetch;
-    global.fetch = function(input, init) {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = function(input: RequestInfo, init?: RequestInit) {
       console.log("[CodePushDebug] Fetch request to:", typeof input === 'string' ? input : 'Request object');
       return originalFetch(input, init)
-        .then(response => {
+        .then((response: Response) => {
           console.log("[CodePushDebug] Fetch success for:", typeof input === 'string' ? input : 'Request object');
           return response;
         })
-        .catch(error => {
+        .catch((error: unknown) => {
           console.log("[CodePushDebug] Fetch error:", error);
           throw error;
         });
